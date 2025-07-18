@@ -6,7 +6,8 @@ import warnings
 import numpy as np
 import pandas as pd
 from pandarallel import pandarallel
-
+from scipy.spatial.distance import cosine
+from tqdm import tqdm
 from utils import Logger
 
 pd.set_option('display.max_columns', None)
@@ -116,7 +117,69 @@ def func_w2w_last_sim(x):
     except Exception as e:
         pass
     return sim
+# =============== 新增 Embedding 特征函数 ===============
+def emb_sim_features(x, emb_map):
+    """计算embedding相似度特征"""
+    user_id = x['user_id']
+    article_id = x['article_id']
+    
+    # 获取用户最后点击的文章
+    if user_id in user_item_dict:
+        last_item = user_item_dict[user_id][-1]
+    else:
+        return 0.0
+    
+    # 获取embedding
+    emb1 = emb_map.get(last_item)
+    emb2 = emb_map.get(article_id)
+    
+    if emb1 is None or emb2 is None:
+        return 0.0
+    
+    # 计算余弦相似度
+    dot_product = np.dot(emb1, emb2)
+    norm1 = np.linalg.norm(emb1)
+    norm2 = np.linalg.norm(emb2)
+    
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    
+    return dot_product / (norm1 * norm2)
 
+def emb_sim_avg(x, emb_map, user_emb_map):
+    """计算与用户平均embedding的相似度"""
+    user_id = x['user_id']
+    article_id = x['article_id']
+    
+    avg_emb = user_emb_map.get(user_id)
+    cand_emb = emb_map.get(article_id)
+    
+    if avg_emb is None or cand_emb is None:
+        return 0.0
+    
+    dot_product = np.dot(avg_emb, cand_emb)
+    norm1 = np.linalg.norm(avg_emb)
+    norm2 = np.linalg.norm(cand_emb)
+    
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    
+    return dot_product / (norm1 * norm2)
+
+def emb_norm_features(x, emb_map, emb_type):
+    """计算embedding范数特征"""
+    if emb_type == 'last':
+        user_id = x['user_id']
+        if user_id in user_item_dict:
+            last_item = user_item_dict[user_id][-1]
+            emb = emb_map.get(last_item)
+            return np.linalg.norm(emb) if emb is not None else 0.0
+        return 0.0
+    elif emb_type == 'candidate':
+        article_id = x['article_id']
+        emb = emb_map.get(article_id)
+        return np.linalg.norm(emb) if emb is not None else 0.0
+    return 0.0
 
 if __name__ == '__main__':
     if mode == 'valid':
@@ -321,6 +384,53 @@ if __name__ == '__main__':
 
     log.debug(f'df_feature.shape: {df_feature.shape}')
     log.debug(f'df_feature.columns: {df_feature.columns.tolist()}')
+
+    # =============== 新增 Embedding 特征 ===============
+    # 加载官方embedding
+    if mode == 'valid':
+        emb_file = '../user_data/data/offline/article_emb.pkl'
+    else:
+        emb_file = '../user_data/data/online/article_emb.pkl'
+    
+    with open(emb_file, 'rb') as f:
+        article_emb_map = pickle.load(f)
+    
+    log.debug(f'Loaded {len(article_emb_map)} embeddings for feature engineering')
+    
+    # 特征1: 与最后点击文章的相似度
+    df_feature['emb_sim_last'] = df_feature.parallel_apply(
+        lambda x: emb_sim_features(x, article_emb_map), axis=1
+    )
+    
+    # 特征2: 与用户历史平均embedding的相似度
+    # 先计算每个用户的平均embedding
+    user_avg_emb = {}
+    for user_id, items in tqdm(user_item_dict.items()):
+        embs = [article_emb_map.get(item) for item in items]
+        valid_embs = [e for e in embs if e is not None]
+        
+        if valid_embs:
+            user_avg_emb[user_id] = np.mean(valid_embs, axis=0)
+        else:
+            user_avg_emb[user_id] = np.zeros(256)  # 假设embedding维度为256
+    
+    df_feature['emb_sim_avg'] = df_feature.parallel_apply(
+        lambda x: emb_sim_avg(x, article_emb_map, user_avg_emb), axis=1
+    )
+    
+    # 特征3: 最后点击文章的embedding范数
+    df_feature['last_emb_norm'] = df_feature.parallel_apply(
+        lambda x: emb_norm_features(x, article_emb_map, 'last'), axis=1
+    )
+    
+    # 特征4: 当前文章的embedding范数
+    df_feature['cand_emb_norm'] = df_feature.parallel_apply(
+        lambda x: emb_norm_features(x, article_emb_map, 'candidate'), axis=1
+    )
+    
+    log.debug(f'新增Embedding特征完成，特征维度: {df_feature.shape[1]}')
+    log.debug(f'Embedding特征示例: {df_feature[["emb_sim_last", "emb_sim_avg", "last_emb_norm", "cand_emb_norm"]].head()}')
+    # =============== End of Embedding 特征 ===============
 
     # 保存特征文件
     if mode == 'valid':
