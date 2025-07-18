@@ -44,20 +44,40 @@ def load_embeddings(emb_file):
     """加载官方embedding文件"""
     df_emb = pd.read_csv(emb_file)
     article_emb_map = {}
+    # 获取所有embedding列
+    emb_cols = [col for col in df_emb.columns if col.startswith('emb_')]
+    
+    # 确保列按数字顺序排序
+    emb_cols = sorted(emb_cols, key=lambda x: int(x.split('_')[1]))
+    
+    log.debug(f"检测到 {len(emb_cols)} 维embedding")
+    
     for _, row in tqdm(df_emb.iterrows(), total=len(df_emb)):
         article_id = row['article_id']
-        emb = np.array(eval(row['emb']))
+        emb = row[emb_cols].values.astype(np.float32)
         article_emb_map[article_id] = emb
+        
     return article_emb_map
+   
 
 def build_faiss_index(emb_map):
-    """构建FAISS索引"""
+    """构建FAISS索引（自动检测维度）"""
+    if not emb_map:
+        log.warning("embedding映射为空！")
+        return None, []
+    
+    # 动态获取维度
+    sample_emb = next(iter(emb_map.values()))
+    dim = sample_emb.shape[0]
+    log.debug(f"FAISS索引维度: {dim}")
+    
     article_ids = list(emb_map.keys())
     embeddings = np.array([emb_map[aid] for aid in article_ids])
     
-    index = faiss.IndexFlatIP(embeddings.shape[1])
+    index = faiss.IndexFlatIP(dim)
     index.add(embeddings.astype(np.float32))
     return index, article_ids
+   
 
 @multitasking.task
 def recall(df_query, emb_map, faiss_index, article_id_map, user_item_dict, worker_id):
