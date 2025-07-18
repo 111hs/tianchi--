@@ -46,7 +46,22 @@ def train_model(df_feature, df_query):
         filter(
             lambda x: x not in [ycol, 'created_at_datetime', 'click_datetime'],
             df_train.columns))
+    # =============== 确保包含新特征 ===============
+    # 检查是否包含新增的Embedding特征
+    new_features = ['emb_sim_last', 'emb_sim_avg', 'last_emb_norm', 'cand_emb_norm']
+    missing_features = [f for f in new_features if f not in feature_names]
+    
+    if missing_features:
+        log.warning(f'缺失新特征: {missing_features}')
+    else:
+        log.info(f'成功包含所有新特征: {new_features}')
+    
+    # 确保特征列表正确
+    feature_names = [f for f in feature_names if f in df_train.columns]
+    # =============== End of 修改 ===============
     feature_names.sort()
+    log.info(f'最终特征数量: {len(feature_names)}')
+    log.debug(f'特征列表: {feature_names}')
 
     model = lgb.LGBMClassifier(num_leaves=64,
                                max_depth=10,
@@ -144,6 +159,17 @@ def online_predict(df_test):
         filter(
             lambda x: x not in [ycol, 'created_at_datetime', 'click_datetime'],
             df_test.columns))
+    # =============== 确保包含新特征 ===============
+    new_features = ['emb_sim_last', 'emb_sim_avg', 'last_emb_norm', 'cand_emb_norm']
+    missing_features = [f for f in new_features if f not in feature_names]
+    
+    if missing_features:
+        log.warning(f'缺失新特征: {missing_features}')
+    else:
+        log.info(f'成功包含所有新特征: {new_features}')
+    
+    feature_names = [f for f in feature_names if f in df_test.columns]
+    # =============== End of 修改 ===============
     feature_names.sort()
 
     prediction = df_test[['user_id', 'article_id']]
