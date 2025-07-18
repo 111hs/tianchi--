@@ -412,7 +412,7 @@ if __name__ == '__main__':
         if valid_embs:
             user_avg_emb[user_id] = np.mean(valid_embs, axis=0)
         else:
-            user_avg_emb[user_id] = np.zeros(256)  # 假设embedding维度为256
+            user_avg_emb[user_id] = np.zeros(250)  # 假设embedding维度为250
     
     df_feature['emb_sim_avg'] = df_feature.parallel_apply(
         lambda x: emb_sim_avg(x, article_emb_map, user_avg_emb), axis=1
