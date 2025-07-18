@@ -396,7 +396,13 @@ if __name__ == '__main__':
         article_emb_map = pickle.load(f)
     
     log.debug(f'Loaded {len(article_emb_map)} embeddings for feature engineering')
-    
+    # 动态获取embedding维度
+    emb_dim = 250  # 默认值
+    if article_emb_map:
+        sample_emb = next(iter(article_emb_map.values()))
+        emb_dim = len(sample_emb)
+        log.debug(f"Embedding维度: {emb_dim}")
+   
     # 特征1: 与最后点击文章的相似度
     df_feature['emb_sim_last'] = df_feature.parallel_apply(
         lambda x: emb_sim_features(x, article_emb_map), axis=1
